@@ -118,6 +118,7 @@ export default function Lightbox() {
   return (
     <LightboxInner
       src={src}
+      imageId={lightboxImageId}
       maskPreviewSrc={maskPreviewSrc}
       onClose={close}
       showNav={showNav}
@@ -131,6 +132,7 @@ export default function Lightbox() {
 
 interface LightboxInnerProps {
   src: string
+  imageId: string
   maskPreviewSrc?: string
   onClose: () => void
   showNav: boolean
@@ -141,7 +143,7 @@ interface LightboxInnerProps {
 }
 
 /** 内部组件：保证挂载时 DOM 已经存在，所有 ref / effect 都可靠 */
-function LightboxInner({ src, maskPreviewSrc, onClose, showNav, currentIndex, total, onPrev, onNext }: LightboxInnerProps) {
+function LightboxInner({ src, imageId, maskPreviewSrc, onClose, showNav, currentIndex, total, onPrev, onNext }: LightboxInnerProps) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   // 用 ref 追踪最新变换，避免闭包过期
@@ -438,7 +440,7 @@ function LightboxInner({ src, maskPreviewSrc, onClose, showNav, currentIndex, to
   const zoomPercent = Math.round(s * 100)
 
   const navBtnClass =
-    'absolute top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition-all z-10 backdrop-blur-sm'
+    'absolute top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/40 text-white hover:bg-black/60 transition-all z-10'
 
   return (
     <div
@@ -449,7 +451,7 @@ function LightboxInner({ src, maskPreviewSrc, onClose, showNav, currentIndex, to
       onClick={onClick}
       onDoubleClick={onDoubleClick}
     >
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-md animate-fade-in" />
+      <div className="absolute inset-0 bg-black/75 animate-fade-in" />
       <div className="relative animate-zoom-in">
         <div
           className="relative flex items-center justify-center"
@@ -461,6 +463,7 @@ function LightboxInner({ src, maskPreviewSrc, onClose, showNav, currentIndex, to
         >
           <img
             src={src}
+            data-image-id={imageId}
             className="saveable-image max-w-[85vw] max-h-[85vh] object-contain rounded-lg shadow-2xl"
             onDragStart={(e) => e.preventDefault()}
             alt=""

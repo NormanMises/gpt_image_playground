@@ -1,9 +1,9 @@
 import React, { useEffect, useState, useRef } from 'react'
-import { useStore, addImageFromUrl } from '../store'
+import { useStore, addImageFromUrl, ensureImageCached } from '../store'
 import { copyBlobToClipboard, getClipboardFailureMessage } from '../lib/clipboard'
 
 export default function ImageContextMenu() {
-  const [menuInfo, setMenuInfo] = useState<{ src: string; x: number; y: number } | null>(null)
+  const [menuInfo, setMenuInfo] = useState<{ src: string; imageId?: string; x: number; y: number } | null>(null)
   const showToast = useStore((s) => s.showToast)
   const inputImages = useStore((s) => s.inputImages)
   const setDetailTaskId = useStore((s) => s.setDetailTaskId)
@@ -29,6 +29,7 @@ export default function ImageContextMenu() {
         e.preventDefault()
         setMenuInfo({
           src: imgTarget.src,
+          imageId: imgTarget.dataset.imageId,
           x: e.clientX,
           y: e.clientY,
         })
@@ -70,11 +71,17 @@ export default function ImageContextMenu() {
 
   if (!menuInfo) return null
 
+  const getOriginalImageSrc = async () => {
+    if (!menuInfo.imageId) return menuInfo.src
+    return await ensureImageCached(menuInfo.imageId) ?? menuInfo.src
+  }
+
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation()
     setMenuInfo(null)
     try {
-      const res = await fetch(menuInfo.src)
+      const src = await getOriginalImageSrc()
+      const res = await fetch(src)
       const blob = await res.blob()
       await copyBlobToClipboard(blob)
       showToast('图片已复制', 'success')
@@ -88,7 +95,8 @@ export default function ImageContextMenu() {
     e.stopPropagation()
     setMenuInfo(null)
     try {
-      const res = await fetch(menuInfo.src)
+      const src = await getOriginalImageSrc()
+      const res = await fetch(src)
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -115,7 +123,8 @@ export default function ImageContextMenu() {
     }
 
     try {
-      await addImageFromUrl(menuInfo.src)
+      const src = await getOriginalImageSrc()
+      await addImageFromUrl(src)
       setDetailTaskId(null)
       setLightboxImageId(null)
       setMaskEditorImageId(null)
