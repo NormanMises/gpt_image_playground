@@ -112,6 +112,12 @@ export interface TaskRecord {
 export interface StoredImage {
   id: string
   dataUrl: string
+  /** 列表缩略图，用于避免卡片页解码完整 4K 原图 */
+  thumbnailDataUrl?: string
+  /** 原图宽度 */
+  width?: number
+  /** 原图高度 */
+  height?: number
   /** 图片首次存储时间（ms） */
   createdAt?: number
   /** 图片来源：用户上传 / API 生成 / 遮罩 */

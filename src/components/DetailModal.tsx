@@ -54,8 +54,9 @@ export default function DetailModal() {
     }
 
     let cancelled = false
+    const currentOutputId = task.outputImages?.[imageIndex] || ''
     const ids = [...new Set([
-      ...(task.outputImages || []),
+      ...(currentOutputId ? [currentOutputId] : []),
       ...(task.inputImageIds || []),
       ...(task.maskImageId ? [task.maskImageId] : []),
     ])]
@@ -75,7 +76,7 @@ export default function DetailModal() {
     return () => {
       cancelled = true
     }
-  }, [task])
+  }, [task, imageIndex])
 
   const currentOutputImageId = task?.outputImages?.[imageIndex] || ''
   const currentOutputImageSrc = currentOutputImageId ? imageSrcs[currentOutputImageId] || '' : ''

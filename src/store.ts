@@ -16,6 +16,7 @@ import {
   deleteTask as dbDeleteTask,
   clearTasks as dbClearTasks,
   getImage,
+  getImageThumbnail,
   getAllImageIds,
   getAllImages,
   putImage,
@@ -34,7 +35,9 @@ import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 // 内存缓存，id → dataUrl。只保留少量最近使用图片，避免大量 4K data URL 常驻内存。
 
 const imageCache = new Map<string, string>()
+const thumbnailCache = new Map<string, { dataUrl: string; width?: number; height?: number }>()
 const MAX_IMAGE_CACHE_ENTRIES = 8
+const MAX_THUMBNAIL_CACHE_ENTRIES = 80
 const FAL_RECOVERY_POLL_MS = 10_000
 const falRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const openAIWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -63,6 +66,25 @@ function cacheImage(id: string, dataUrl: string) {
   }
 }
 
+function getCachedThumbnail(id: string) {
+  const thumbnail = thumbnailCache.get(id)
+  if (thumbnail) {
+    thumbnailCache.delete(id)
+    thumbnailCache.set(id, thumbnail)
+  }
+  return thumbnail
+}
+
+function cacheThumbnail(id: string, thumbnail: { dataUrl: string; width?: number; height?: number }) {
+  thumbnailCache.delete(id)
+  thumbnailCache.set(id, thumbnail)
+  while (thumbnailCache.size > MAX_THUMBNAIL_CACHE_ENTRIES) {
+    const oldestKey = thumbnailCache.keys().next().value
+    if (oldestKey == null) break
+    thumbnailCache.delete(oldestKey)
+  }
+}
+
 export async function ensureImageCached(id: string): Promise<string | undefined> {
   const cached = getCachedImage(id)
   if (cached) return cached
@@ -72,6 +94,22 @@ export async function ensureImageCached(id: string): Promise<string | undefined>
     return rec.dataUrl
   }
   return undefined
+}
+
+export async function ensureImageThumbnailCached(id: string): Promise<{ dataUrl: string; width?: number; height?: number } | undefined> {
+  const cached = getCachedThumbnail(id)
+  if (cached) return cached
+
+  const rec = await getImageThumbnail(id)
+  if (!rec?.thumbnailDataUrl) return undefined
+
+  const thumbnail = {
+    dataUrl: rec.thumbnailDataUrl,
+    width: rec.width,
+    height: rec.height,
+  }
+  cacheThumbnail(id, thumbnail)
+  return thumbnail
 }
 
 function orderImagesWithMaskFirst(images: InputImage[], maskTargetImageId: string | null | undefined) {
@@ -936,6 +974,7 @@ export async function removeMultipleTasks(taskIds: string[]) {
     if (!stillUsed.has(imgId)) {
       await deleteImage(imgId)
       imageCache.delete(imgId)
+      thumbnailCache.delete(imgId)
     }
   }
 
@@ -978,6 +1017,7 @@ export async function removeTask(task: TaskRecord) {
     if (!stillUsed.has(imgId)) {
       await deleteImage(imgId)
       imageCache.delete(imgId)
+      thumbnailCache.delete(imgId)
     }
   }
 
@@ -989,6 +1029,7 @@ export async function clearAllData() {
   await dbClearTasks()
   await clearImages()
   imageCache.clear()
+  thumbnailCache.clear()
   const { setTasks, clearInputImages, clearMaskDraft, setSettings, setParams, showToast } = useStore.getState()
   setTasks([])
   clearInputImages()

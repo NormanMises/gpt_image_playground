@@ -4,6 +4,7 @@ const DB_NAME = 'gpt-image-playground'
 const DB_VERSION = 1
 const STORE_TASKS = 'tasks'
 const STORE_IMAGES = 'images'
+const THUMBNAIL_MAX_SIZE = 360
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -61,6 +62,27 @@ export function clearTasks(): Promise<undefined> {
 
 export function getImage(id: string): Promise<StoredImage | undefined> {
   return dbTransaction(STORE_IMAGES, 'readonly', (s) => s.get(id))
+}
+
+export async function getImageThumbnail(id: string): Promise<Pick<StoredImage, 'thumbnailDataUrl' | 'width' | 'height'> | undefined> {
+  const image = await getImage(id)
+  if (!image) return undefined
+  if (image.thumbnailDataUrl && image.width && image.height) {
+    return {
+      thumbnailDataUrl: image.thumbnailDataUrl,
+      width: image.width,
+      height: image.height,
+    }
+  }
+
+  const metadata = await safeCreateImageThumbnail(image.dataUrl)
+  if (!metadata.thumbnailDataUrl) return undefined
+  const updated = {
+    ...image,
+    ...metadata,
+  }
+  await putImage(updated)
+  return metadata
 }
 
 export function getAllImages(): Promise<StoredImage[]> {
@@ -122,7 +144,49 @@ export async function storeImage(dataUrl: string, source: NonNullable<StoredImag
   const id = await hashDataUrl(dataUrl)
   const existing = await getImage(id)
   if (!existing) {
-    await putImage({ id, dataUrl, createdAt: Date.now(), source })
+    const thumbnail = await safeCreateImageThumbnail(dataUrl)
+    await putImage({ id, dataUrl, ...thumbnail, createdAt: Date.now(), source })
+  } else if (!existing.thumbnailDataUrl || !existing.width || !existing.height) {
+    const thumbnail = await safeCreateImageThumbnail(existing.dataUrl)
+    await putImage({ ...existing, ...thumbnail })
   }
   return id
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    image.onload = () => resolve(image)
+    image.onerror = () => reject(new Error('图片加载失败'))
+    image.src = dataUrl
+  })
+}
+
+async function createImageThumbnail(dataUrl: string): Promise<Pick<StoredImage, 'thumbnailDataUrl' | 'width' | 'height'>> {
+  const image = await loadImage(dataUrl)
+  const width = image.naturalWidth
+  const height = image.naturalHeight
+  if (width <= 0 || height <= 0) throw new Error('图片尺寸无效')
+
+  const scale = Math.min(1, THUMBNAIL_MAX_SIZE / Math.max(width, height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(width * scale))
+  canvas.height = Math.max(1, Math.round(height * scale))
+  const ctx = canvas.getContext('2d')
+  if (!ctx) throw new Error('当前浏览器不支持 Canvas')
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height)
+
+  return {
+    thumbnailDataUrl: canvas.toDataURL('image/webp', 0.78),
+    width,
+    height,
+  }
+}
+
+async function safeCreateImageThumbnail(dataUrl: string): Promise<Partial<Pick<StoredImage, 'thumbnailDataUrl' | 'width' | 'height'>>> {
+  try {
+    return await createImageThumbnail(dataUrl)
+  } catch {
+    return {}
+  }
 }

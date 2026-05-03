@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import type { TaskRecord } from '../types'
-import { useStore, getCachedImage, ensureImageCached, updateTaskInStore, retryTask } from '../store'
+import { useStore, ensureImageThumbnailCached, updateTaskInStore, retryTask } from '../store'
 import { formatImageRatio } from '../lib/size'
 import { ParamValue } from '../lib/paramDisplay'
 
@@ -113,40 +113,26 @@ export default function TaskCard({
   useEffect(() => {
     setCoverRatio('')
     setCoverSize('')
-
-    if (task.outputImages?.[0]) {
-      const cached = getCachedImage(task.outputImages[0])
-      if (cached) {
-        setThumbSrc(cached)
-      } else {
-        ensureImageCached(task.outputImages[0]).then((url) => {
-          if (url) setThumbSrc(url)
-        })
-      }
-    }
-  }, [task.outputImages])
-
-  useEffect(() => {
-    if (!thumbSrc) return
+    setThumbSrc('')
 
     let cancelled = false
-    const image = new Image()
-    image.onload = () => {
-      if (!cancelled && image.naturalWidth > 0 && image.naturalHeight > 0) {
-        setCoverRatio(formatImageRatio(image.naturalWidth, image.naturalHeight))
-        setCoverSize(`${image.naturalWidth}×${image.naturalHeight}`)
-      }
-    }
-    image.src = thumbSrc
-    if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
-      setCoverRatio(formatImageRatio(image.naturalWidth, image.naturalHeight))
-      setCoverSize(`${image.naturalWidth}×${image.naturalHeight}`)
+    if (task.outputImages?.[0]) {
+      ensureImageThumbnailCached(task.outputImages[0]).then((thumbnail) => {
+        if (cancelled || !thumbnail) return
+        setThumbSrc(thumbnail.dataUrl)
+        if (thumbnail.width && thumbnail.height) {
+          setCoverRatio(formatImageRatio(thumbnail.width, thumbnail.height))
+          setCoverSize(`${thumbnail.width}×${thumbnail.height}`)
+        }
+      }).catch(() => {
+        if (!cancelled) setThumbSrc('')
+      })
     }
 
     return () => {
       cancelled = true
     }
-  }, [thumbSrc])
+  }, [task.outputImages])
 
   const duration = (() => {
     let seconds: number
