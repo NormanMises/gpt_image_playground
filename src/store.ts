@@ -16,6 +16,7 @@ import {
   deleteTask as dbDeleteTask,
   clearTasks as dbClearTasks,
   getImage,
+  getAllImageIds,
   getAllImages,
   putImage,
   deleteImage,
@@ -30,9 +31,10 @@ import { getChangedParams, normalizeParamsForSettings } from './lib/paramCompati
 import { zipSync, unzipSync, strToU8, strFromU8 } from 'fflate'
 
 // ===== Image cache =====
-// 内存缓存，id → dataUrl，避免每次从 IndexedDB 读取
+// 内存缓存，id → dataUrl。只保留少量最近使用图片，避免大量 4K data URL 常驻内存。
 
 const imageCache = new Map<string, string>()
+const MAX_IMAGE_CACHE_ENTRIES = 8
 const FAL_RECOVERY_POLL_MS = 10_000
 const falRecoveryTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const openAIWatchdogTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -43,14 +45,30 @@ function createOpenAITimeoutError(timeoutSeconds: number) {
 }
 
 export function getCachedImage(id: string): string | undefined {
-  return imageCache.get(id)
+  const dataUrl = imageCache.get(id)
+  if (dataUrl) {
+    imageCache.delete(id)
+    imageCache.set(id, dataUrl)
+  }
+  return dataUrl
+}
+
+function cacheImage(id: string, dataUrl: string) {
+  imageCache.delete(id)
+  imageCache.set(id, dataUrl)
+  while (imageCache.size > MAX_IMAGE_CACHE_ENTRIES) {
+    const oldestKey = imageCache.keys().next().value
+    if (oldestKey == null) break
+    imageCache.delete(oldestKey)
+  }
 }
 
 export async function ensureImageCached(id: string): Promise<string | undefined> {
-  if (imageCache.has(id)) return imageCache.get(id)
+  const cached = getCachedImage(id)
+  if (cached) return cached
   const rec = await getImage(id)
   if (rec) {
-    imageCache.set(id, rec.dataUrl)
+    cacheImage(id, rec.dataUrl)
     return rec.dataUrl
   }
   return undefined
@@ -441,7 +459,7 @@ async function completeRecoveredFalTask(task: TaskRecord, result: Awaited<Return
   const outputIds: string[] = []
   for (const dataUrl of result.images) {
     const imgId = await storeImage(dataUrl, 'generated')
-    imageCache.set(imgId, dataUrl)
+    cacheImage(imgId, dataUrl)
     outputIds.push(imgId)
   }
 
@@ -506,7 +524,7 @@ async function recoverFalTask(taskId: string) {
   }
 }
 
-/** 初始化：从 IndexedDB 加载任务和图片缓存，清理孤立图片 */
+/** 初始化：从 IndexedDB 加载任务，按需恢复输入图片，并清理孤立图片 */
 export async function initStore() {
   const storedTasks = await getAllTasks()
   const { tasks, interruptedTasks } = markInterruptedOpenAIRunningTasks(storedTasks)
@@ -535,19 +553,25 @@ export async function initStore() {
     }
   }
 
-  // 预加载所有图片到缓存，同时清理孤立图片
-  const images = await getAllImages()
-  const imageById = new Map(images.map((img) => [img.id, img]))
-  for (const img of images) {
-    if (referencedIds.has(img.id)) {
-      imageCache.set(img.id, img.dataUrl)
-    } else {
-      await deleteImage(img.id)
+  // 只枚举 key 清理孤立图片，避免启动时把所有 4K 原图读进内存。
+  const imageIds = await getAllImageIds()
+  for (const imgId of imageIds) {
+    if (!referencedIds.has(imgId)) await deleteImage(imgId)
+  }
+
+  const restoredInputImages = []
+  for (const img of persistedInputImages) {
+    if (img.dataUrl) {
+      restoredInputImages.push(img)
+      cacheImage(img.id, img.dataUrl)
+      continue
+    }
+    const storedImage = await getImage(img.id)
+    if (storedImage?.dataUrl) {
+      restoredInputImages.push({ ...img, dataUrl: storedImage.dataUrl })
+      cacheImage(img.id, storedImage.dataUrl)
     }
   }
-  const restoredInputImages = persistedInputImages
-    .map((img) => ({ ...img, dataUrl: img.dataUrl || imageById.get(img.id)?.dataUrl || '' }))
-    .filter((img) => img.dataUrl)
   if (restoredInputImages.length !== persistedInputImages.length || restoredInputImages.some((img, index) => img.dataUrl !== persistedInputImages[index]?.dataUrl)) {
     useStore.getState().setInputImages(restoredInputImages)
   }
@@ -591,7 +615,7 @@ export async function submitTask(options: { allowFullMask?: boolean } = {}) {
         return
       }
       maskImageId = await storeImage(maskDraft.maskDataUrl, 'mask')
-      imageCache.set(maskImageId, maskDraft.maskDataUrl)
+      cacheImage(maskImageId, maskDraft.maskDataUrl)
       maskTargetImageId = maskDraft.targetImageId
     } catch (err) {
       if (!inputImages.some((img) => img.id === maskDraft.targetImageId)) {
@@ -696,7 +720,7 @@ async function executeTask(taskId: string) {
     const outputIds: string[] = []
     for (const dataUrl of result.images) {
       const imgId = await storeImage(dataUrl, 'generated')
-      imageCache.set(imgId, dataUrl)
+      cacheImage(imgId, dataUrl)
       outputIds.push(imgId)
     }
     const shouldStoreApiResponseMetadata = taskProvider !== 'fal'
@@ -1076,7 +1100,7 @@ export async function importData(file: File): Promise<boolean> {
       if (!bytes) continue
       const dataUrl = bytesToDataUrl(bytes, info.path)
       await putImage({ id, dataUrl, createdAt: info.createdAt, source: info.source })
-      imageCache.set(id, dataUrl)
+      cacheImage(id, dataUrl)
     }
 
     for (const task of data.tasks) {
@@ -1110,7 +1134,7 @@ export async function addImageFromFile(file: File): Promise<void> {
   if (!file.type.startsWith('image/')) return
   const dataUrl = await fileToDataUrl(file)
   const id = await storeImage(dataUrl, 'upload')
-  imageCache.set(id, dataUrl)
+  cacheImage(id, dataUrl)
   useStore.getState().addInputImage({ id, dataUrl })
 }
 
@@ -1121,7 +1145,7 @@ export async function addImageFromUrl(src: string): Promise<void> {
   if (!blob.type.startsWith('image/')) throw new Error('不是有效的图片')
   const dataUrl = await blobToDataUrl(blob)
   const id = await storeImage(dataUrl, 'upload')
-  imageCache.set(id, dataUrl)
+  cacheImage(id, dataUrl)
   useStore.getState().addInputImage({ id, dataUrl })
 }
 

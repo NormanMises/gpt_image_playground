@@ -67,6 +67,12 @@ export function getAllImages(): Promise<StoredImage[]> {
   return dbTransaction(STORE_IMAGES, 'readonly', (s) => s.getAll())
 }
 
+export function getAllImageIds(): Promise<string[]> {
+  return dbTransaction(STORE_IMAGES, 'readonly', (s) => s.getAllKeys()).then((keys) =>
+    keys.map(String),
+  )
+}
+
 export function putImage(image: StoredImage): Promise<IDBValidKey> {
   return dbTransaction(STORE_IMAGES, 'readwrite', (s) => s.put(image))
 }
