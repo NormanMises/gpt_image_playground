@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect } from 'react'
-import { useStore, reuseConfig, editOutputs, removeTask } from '../store'
+import { useStore, reuseConfig, editOutputs, removeTask, downloadTaskOutputImage } from '../store'
 import TaskCard from './TaskCard'
 
 export default function TaskGrid() {
@@ -221,6 +221,7 @@ export default function TaskGrid() {
               }}
               onReuse={() => reuseConfig(task)}
               onEditOutputs={() => editOutputs(task)}
+              onDownload={() => downloadTaskOutputImage(task)}
               onDelete={() => handleDelete(task)}
               isSelected={selectedTaskIds.includes(task.id)}
             />

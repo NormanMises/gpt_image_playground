@@ -8,6 +8,7 @@ interface Props {
   task: TaskRecord
   onReuse: () => void
   onEditOutputs: () => void
+  onDownload: () => void
   onDelete: () => void
   onClick: (e: React.MouseEvent | React.TouchEvent) => void
   isSelected?: boolean
@@ -17,6 +18,7 @@ export default function TaskCard({
   task,
   onReuse,
   onEditOutputs,
+  onDownload,
   onDelete,
   onClick,
   isSelected,
@@ -369,6 +371,26 @@ export default function TaskCard({
                   </svg>
                 </button>
               )}
+              <button
+                onClick={onDownload}
+                className="p-1.5 rounded-md hover:bg-blue-50 dark:hover:bg-blue-950/30 text-gray-400 hover:text-blue-500 transition disabled:opacity-30"
+                title="下载原图"
+                disabled={!task.outputImages?.length}
+              >
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                  />
+                </svg>
+              </button>
               <button
                 onClick={() =>
                   updateTaskInStore(task.id, { isFavorite: !task.isFavorite })

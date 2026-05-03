@@ -1054,6 +1054,106 @@ function dataUrlToBytes(dataUrl: string): { ext: string; bytes: Uint8Array } {
   return { ext, bytes }
 }
 
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
+}
+
+function getTaskOutputFilename(task: TaskRecord, imageId: string, index: number, ext: string) {
+  const safeTaskId = task.id.replace(/[^a-z0-9_-]/gi, '-')
+  const safeImageId = imageId.slice(0, 12).replace(/[^a-z0-9_-]/gi, '-')
+  return `${safeTaskId}-${String(index + 1).padStart(2, '0')}-${safeImageId}.${ext}`
+}
+
+/** 下载单张任务输出原图 */
+export async function downloadTaskOutputImage(task: TaskRecord, imageId = task.outputImages[0]) {
+  if (!imageId) {
+    useStore.getState().showToast('没有可下载的输出图', 'error')
+    return
+  }
+
+  try {
+    const dataUrl = await ensureImageCached(imageId)
+    if (!dataUrl) throw new Error('原图已不存在')
+    const { ext, bytes } = dataUrlToBytes(dataUrl)
+    const index = Math.max(0, task.outputImages.indexOf(imageId))
+    downloadBlob(
+      new Blob([toArrayBuffer(bytes)], { type: `image/${ext}` }),
+      getTaskOutputFilename(task, imageId, index, ext),
+    )
+    useStore.getState().showToast('开始下载原图', 'success')
+  } catch (e) {
+    useStore
+      .getState()
+      .showToast(
+        `下载失败：${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      )
+  }
+}
+
+/** 下载选中任务的全部输出原图；多张图打包为 ZIP，避免浏览器拦截连续下载 */
+export async function downloadSelectedTaskOutputs(taskIds: string[]) {
+  const selected = new Set(taskIds)
+  const tasks = useStore.getState().tasks.filter((task) => selected.has(task.id))
+  const outputRefs = tasks.flatMap((task) =>
+    task.outputImages.map((imageId, index) => ({ task, imageId, index })),
+  )
+
+  if (!outputRefs.length) {
+    useStore.getState().showToast('选中记录没有可下载的输出图', 'error')
+    return
+  }
+
+  try {
+    if (outputRefs.length === 1) {
+      const [{ task, imageId }] = outputRefs
+      await downloadTaskOutputImage(task, imageId)
+      return
+    }
+
+    const zipFiles: Record<string, Uint8Array | [Uint8Array, { mtime: Date }]> = {}
+    const now = Date.now()
+
+    for (const { task, imageId, index } of outputRefs) {
+      const dataUrl = await ensureImageCached(imageId)
+      if (!dataUrl) continue
+      const { ext, bytes } = dataUrlToBytes(dataUrl)
+      zipFiles[getTaskOutputFilename(task, imageId, index, ext)] = [
+        bytes,
+        { mtime: new Date(task.finishedAt ?? task.createdAt ?? now) },
+      ]
+    }
+
+    const fileCount = Object.keys(zipFiles).length
+    if (!fileCount) throw new Error('原图已不存在')
+
+    const zipped = zipSync(zipFiles, { level: 0 })
+    downloadBlob(
+      new Blob([toArrayBuffer(zipped)], { type: 'application/zip' }),
+      `gpt-image-playground-images-${now}.zip`,
+    )
+    useStore.getState().showToast(`开始下载 ${fileCount} 张原图`, 'success')
+  } catch (e) {
+    useStore
+      .getState()
+      .showToast(
+        `批量下载失败：${e instanceof Error ? e.message : String(e)}`,
+        'error',
+      )
+  }
+}
+
 /** 将二进制数据还原为 dataUrl */
 function bytesToDataUrl(bytes: Uint8Array, filePath: string): string {
   const ext = filePath.split('.').pop()?.toLowerCase() ?? 'png'
@@ -1109,12 +1209,7 @@ export async function exportData() {
 
     const zipped = zipSync(zipFiles, { level: 6 })
     const blob = new Blob([zipped.buffer as ArrayBuffer], { type: 'application/zip' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `gpt-image-playground-${Date.now()}.zip`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `gpt-image-playground-${Date.now()}.zip`)
     useStore.getState().showToast('数据已导出', 'success')
   } catch (e) {
     useStore
