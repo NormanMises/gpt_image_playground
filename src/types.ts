@@ -124,6 +124,16 @@ export interface StoredImage {
   source?: 'upload' | 'generated' | 'mask'
 }
 
+export interface StoredImageThumbnail {
+  id: string
+  /** 列表缩略图，用于避免卡片页解码完整 4K 原图 */
+  thumbnailDataUrl: string
+  /** 原图宽度 */
+  width?: number
+  /** 原图高度 */
+  height?: number
+}
+
 // ===== API 请求体 =====
 
 export interface ImageGenerationRequest {

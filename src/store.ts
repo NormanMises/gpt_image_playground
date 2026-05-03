@@ -101,7 +101,10 @@ export async function ensureImageThumbnailCached(id: string): Promise<{ dataUrl:
   if (cached) return cached
 
   const rec = await getImageThumbnail(id)
-  if (!rec?.thumbnailDataUrl) return undefined
+  if (!rec?.thumbnailDataUrl) {
+    const original = await ensureImageCached(id)
+    return original ? { dataUrl: original } : undefined
+  }
 
   const thumbnail = {
     dataUrl: rec.thumbnailDataUrl,
@@ -597,7 +600,7 @@ export async function initStore() {
     if (!referencedIds.has(imgId)) await deleteImage(imgId)
   }
 
-  const restoredInputImages = []
+  const restoredInputImages: InputImage[] = []
   for (const img of persistedInputImages) {
     if (img.dataUrl) {
       restoredInputImages.push(img)
