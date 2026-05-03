@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react'
-import { useStore, getCachedImage, ensureImageCached, reuseConfig, editOutputs, removeTask, updateTaskInStore, showCodexCliPrompt, getCodexCliPromptKey, retryTask } from '../store'
+import { useStore, getCachedImage, ensureImageCached, ensureImageThumbnailCached, reuseConfig, editOutputs, removeTask, updateTaskInStore, showCodexCliPrompt, getCodexCliPromptKey, retryTask } from '../store'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { formatImageRatio } from '../lib/size'
 import { ActualValueBadge, DetailParamValue } from '../lib/paramDisplay'
@@ -19,6 +19,7 @@ export default function DetailModal() {
 
   const [imageIndex, setImageIndex] = useState(0)
   const [imageSrcs, setImageSrcs] = useState<Record<string, string>>({})
+  const [outputPreviewSrcs, setOutputPreviewSrcs] = useState<Record<string, string>>({})
   const [imageRatios, setImageRatios] = useState<Record<string, string>>({})
   const [imageSizes, setImageSizes] = useState<Record<string, string>>({})
   const [maskPreviewSrc, setMaskPreviewSrc] = useState('')
@@ -54,9 +55,7 @@ export default function DetailModal() {
     }
 
     let cancelled = false
-    const currentOutputId = task.outputImages?.[imageIndex] || ''
     const ids = [...new Set([
-      ...(currentOutputId ? [currentOutputId] : []),
       ...(task.inputImageIds || []),
       ...(task.maskImageId ? [task.maskImageId] : []),
     ])]
@@ -76,48 +75,48 @@ export default function DetailModal() {
     return () => {
       cancelled = true
     }
-  }, [task, imageIndex])
+  }, [task])
 
   const currentOutputImageId = task?.outputImages?.[imageIndex] || ''
-  const currentOutputImageSrc = currentOutputImageId ? imageSrcs[currentOutputImageId] || '' : ''
+  const currentOutputPreviewSrc = currentOutputImageId ? outputPreviewSrcs[currentOutputImageId] || '' : ''
   const maskTargetId = task?.maskTargetImageId || null
   const maskTargetSrc = maskTargetId ? imageSrcs[maskTargetId] || '' : ''
   const maskSrc = task?.maskImageId ? imageSrcs[task.maskImageId] || '' : ''
   const allInputImageIds = task?.inputImageIds ?? []
 
   useEffect(() => {
-    if (!currentOutputImageId || !currentOutputImageSrc) return
+    if (!currentOutputImageId) return
 
     let cancelled = false
-    const image = new Image()
-    image.onload = () => {
-      if (!cancelled && image.naturalWidth > 0 && image.naturalHeight > 0) {
-        setImageRatios((prev) => ({
-          ...prev,
-          [currentOutputImageId]: formatImageRatio(image.naturalWidth, image.naturalHeight),
-        }))
-        setImageSizes((prev) => ({
-          ...prev,
-          [currentOutputImageId]: `${image.naturalWidth}×${image.naturalHeight}`,
-        }))
-      }
-    }
-    image.src = currentOutputImageSrc
-    if (image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
-      setImageRatios((prev) => ({
-        ...prev,
-        [currentOutputImageId]: formatImageRatio(image.naturalWidth, image.naturalHeight),
-      }))
-      setImageSizes((prev) => ({
-        ...prev,
-        [currentOutputImageId]: `${image.naturalWidth}×${image.naturalHeight}`,
-      }))
-    }
+    ensureImageThumbnailCached(currentOutputImageId)
+      .then((thumbnail) => {
+        if (cancelled || !thumbnail) return
+        setOutputPreviewSrcs((prev) => ({ ...prev, [currentOutputImageId]: thumbnail.dataUrl }))
+        const width = thumbnail.width
+        const height = thumbnail.height
+        if (width && height) {
+          setImageRatios((prev) => ({
+            ...prev,
+            [currentOutputImageId]: formatImageRatio(width, height),
+          }))
+          setImageSizes((prev) => ({
+            ...prev,
+            [currentOutputImageId]: `${width}×${height}`,
+          }))
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOutputPreviewSrcs((prev) => {
+          const next = { ...prev }
+          delete next[currentOutputImageId]
+          return next
+        })
+      })
 
     return () => {
       cancelled = true
     }
-  }, [currentOutputImageId, currentOutputImageSrc])
+  }, [currentOutputImageId])
 
   useEffect(() => {
     const updateImageLabelLeft = () => {
@@ -133,7 +132,7 @@ export default function DetailModal() {
     updateImageLabelLeft()
     window.addEventListener('resize', updateImageLabelLeft)
     return () => window.removeEventListener('resize', updateImageLabelLeft)
-  }, [currentOutputImageSrc])
+  }, [currentOutputPreviewSrc])
 
   useEffect(() => {
     let cancelled = false
@@ -293,11 +292,11 @@ export default function DetailModal() {
 
         {/* 左侧：图片 */}
         <div ref={imagePanelRef} className="md:w-1/2 w-full h-64 md:h-auto bg-gray-100 dark:bg-black/20 relative flex items-center justify-center flex-shrink-0 min-h-[16rem]">
-          {task.status === 'done' && outputLen > 0 && currentOutputImageSrc && (
+          {task.status === 'done' && outputLen > 0 && currentOutputPreviewSrc && (
             <>
               <img
                 ref={mainImageRef}
-                src={currentOutputImageSrc}
+                src={currentOutputPreviewSrc}
                 data-image-id={currentOutputImageId}
                 className="saveable-image max-w-[calc(100%-2rem)] max-h-[calc(100%-2rem)] object-contain cursor-pointer"
                 onLoad={() => {
