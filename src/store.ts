@@ -1069,10 +1069,25 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer
 }
 
-function getTaskOutputFilename(task: TaskRecord, imageId: string, index: number, ext: string) {
+function formatDownloadTimestamp(time: number) {
+  const date = new Date(time)
+  const yyyy = date.getFullYear()
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const dd = String(date.getDate()).padStart(2, '0')
+  const hh = String(date.getHours()).padStart(2, '0')
+  const mi = String(date.getMinutes()).padStart(2, '0')
+  const ss = String(date.getSeconds()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}_${hh}${mi}${ss}`
+}
+
+async function getTaskOutputFilename(task: TaskRecord, imageId: string, index: number, ext: string) {
+  const timestamp = formatDownloadTimestamp(task.finishedAt ?? task.createdAt)
+  const sequence = String(index + 1).padStart(2, '0')
   const safeTaskId = task.id.replace(/[^a-z0-9_-]/gi, '-')
-  const safeImageId = imageId.slice(0, 12).replace(/[^a-z0-9_-]/gi, '-')
-  return `${safeTaskId}-${String(index + 1).padStart(2, '0')}-${safeImageId}.${ext}`
+  const safeImageHash = imageId.slice(0, 12).replace(/[^a-z0-9_-]/gi, '-')
+  const metadata = await getImageThumbnail(imageId)
+  const size = metadata?.width && metadata.height ? `_${metadata.width}x${metadata.height}` : ''
+  return `${timestamp}_${sequence}_${safeTaskId}_${safeImageHash}${size}.${ext}`
 }
 
 /** 下载单张任务输出原图 */
@@ -1087,9 +1102,10 @@ export async function downloadTaskOutputImage(task: TaskRecord, imageId = task.o
     if (!dataUrl) throw new Error('原图已不存在')
     const { ext, bytes } = dataUrlToBytes(dataUrl)
     const index = Math.max(0, task.outputImages.indexOf(imageId))
+    const filename = await getTaskOutputFilename(task, imageId, index, ext)
     downloadBlob(
       new Blob([toArrayBuffer(bytes)], { type: `image/${ext}` }),
-      getTaskOutputFilename(task, imageId, index, ext),
+      filename,
     )
     useStore.getState().showToast('开始下载原图', 'success')
   } catch (e) {
@@ -1129,7 +1145,8 @@ export async function downloadSelectedTaskOutputs(taskIds: string[]) {
       const dataUrl = await ensureImageCached(imageId)
       if (!dataUrl) continue
       const { ext, bytes } = dataUrlToBytes(dataUrl)
-      zipFiles[getTaskOutputFilename(task, imageId, index, ext)] = [
+      const filename = await getTaskOutputFilename(task, imageId, index, ext)
+      zipFiles[filename] = [
         bytes,
         { mtime: new Date(task.finishedAt ?? task.createdAt ?? now) },
       ]
@@ -1141,7 +1158,7 @@ export async function downloadSelectedTaskOutputs(taskIds: string[]) {
     const zipped = zipSync(zipFiles, { level: 0 })
     downloadBlob(
       new Blob([toArrayBuffer(zipped)], { type: 'application/zip' }),
-      `gpt-image-playground-images-${now}.zip`,
+      `gpt-images_${formatDownloadTimestamp(now)}.zip`,
     )
     useStore.getState().showToast(`开始下载 ${fileCount} 张原图`, 'success')
   } catch (e) {
