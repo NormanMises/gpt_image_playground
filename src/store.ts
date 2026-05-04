@@ -7,6 +7,7 @@ import type {
   MaskDraft,
   TaskRecord,
   ExportData,
+  StoredImage,
 } from './types'
 import { DEFAULT_PARAMS } from './types'
 import { DEFAULT_SETTINGS, getActiveApiProfile, mergeImportedSettings, normalizeSettings, validateApiProfile } from './lib/apiProfiles'
@@ -1090,6 +1091,20 @@ async function getTaskOutputFilename(task: TaskRecord, imageId: string, index: n
   return `${timestamp}_${sequence}_${safeTaskId}_${safeImageHash}${size}.${ext}`
 }
 
+async function getStandaloneImageFilename(
+  imageId: string,
+  createdAt: number,
+  source: StoredImage['source'],
+  ext: string,
+) {
+  const timestamp = formatDownloadTimestamp(createdAt)
+  const safeImageHash = imageId.slice(0, 12).replace(/[^a-z0-9_-]/gi, '-')
+  const label = source ?? 'image'
+  const metadata = await getImageThumbnail(imageId)
+  const size = metadata?.width && metadata.height ? `_${metadata.width}x${metadata.height}` : ''
+  return `${timestamp}_${label}_${safeImageHash}${size}.${ext}`
+}
+
 /** 下载单张任务输出原图 */
 export async function downloadTaskOutputImage(task: TaskRecord, imageId = task.outputImages[0]) {
   if (!imageId) {
@@ -1189,6 +1204,7 @@ export async function exportData() {
     const { settings } = useStore.getState()
     const exportedAt = Date.now()
     const imageCreatedAtFallback = new Map<string, number>()
+    const outputImageRefs = new Map<string, { task: TaskRecord; index: number }>()
 
     for (const task of tasks) {
       for (const id of [
@@ -1201,6 +1217,10 @@ export async function exportData() {
           imageCreatedAtFallback.set(id, task.createdAt)
         }
       }
+
+      task.outputImages.forEach((id, index) => {
+        if (!outputImageRefs.has(id)) outputImageRefs.set(id, { task, index })
+      })
     }
 
     const imageFiles: ExportData['imageFiles'] = {}
@@ -1208,8 +1228,12 @@ export async function exportData() {
 
     for (const img of images) {
       const { ext, bytes } = dataUrlToBytes(img.dataUrl)
-      const path = `images/${img.id}.${ext}`
       const createdAt = img.createdAt ?? imageCreatedAtFallback.get(img.id) ?? exportedAt
+      const outputRef = outputImageRefs.get(img.id)
+      const filename = outputRef
+        ? await getTaskOutputFilename(outputRef.task, img.id, outputRef.index, ext)
+        : await getStandaloneImageFilename(img.id, createdAt, img.source, ext)
+      const path = `images/${filename}`
       imageFiles[img.id] = { path, createdAt, source: img.source }
       zipFiles[path] = [bytes, { mtime: new Date(createdAt) }]
     }
@@ -1226,7 +1250,7 @@ export async function exportData() {
 
     const zipped = zipSync(zipFiles, { level: 6 })
     const blob = new Blob([zipped.buffer as ArrayBuffer], { type: 'application/zip' })
-    downloadBlob(blob, `gpt-image-playground-${Date.now()}.zip`)
+    downloadBlob(blob, `gpt-image-playground_${formatDownloadTimestamp(exportedAt)}.zip`)
     useStore.getState().showToast('数据已导出', 'success')
   } catch (e) {
     useStore
