@@ -6,7 +6,7 @@ const MAX_ASPECT_RATIO = 3
 const MIN_PIXELS = 655_360
 const MAX_PIXELS = 8_294_400
 
-export type SizeTier = '1K' | '2K' | '4K'
+export type SizeTier = '1K' | '1.5K' | '2K' | '4K'
 type PresetRatio = '1:1' | '3:2' | '2:3' | '16:9' | '9:16' | '4:3' | '3:4' | '21:9'
 
 function roundToMultiple(value: number, multiple: number) {
@@ -156,6 +156,7 @@ export function formatImageRatio(width: number, height: number) {
  */
 const TIER_PIXEL_BUDGET: Record<SizeTier, number> = {
   '1K': 1_572_864,   // 1024 × 1536
+  '1.5K': 2_359_296, // 1536 × 1536
   '2K': 4_194_304,   // 2048 × 2048
   '4K': MAX_PIXELS,  // 8_294_400
 }
@@ -174,6 +175,16 @@ const COMMON_SIZE_PRESETS: Record<SizeTier, Record<PresetRatio, string>> = {
     '4:3': '1024x768',
     '3:4': '768x1024',
     '21:9': '1280x544',
+  },
+  '1.5K': {
+    '1:1': '1536x1536',
+    '3:2': '1872x1248',
+    '2:3': '1248x1872',
+    '16:9': '2048x1152',
+    '9:16': '1152x2048',
+    '4:3': '1728x1296',
+    '3:4': '1296x1728',
+    '21:9': '2016x864',
   },
   '2K': {
     '1:1': '2048x2048',

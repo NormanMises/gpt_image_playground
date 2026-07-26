@@ -3,7 +3,7 @@ import { calculateImageSize, normalizeImageSize, parseRatio, type SizeTier } fro
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
 import ViewportTooltip from './ViewportTooltip'
 
-const TIERS: SizeTier[] = ['1K', '2K', '4K']
+const TIERS: SizeTier[] = ['1K', '1.5K', '2K', '4K']
 const SIZE_LIMIT_TEXT = '由于模型限制，最终输出会自动规整到合法尺寸：\n宽高均为 16 的倍数，最大边长 3840px，宽高比不超过 3:1，总像素限制为 655360-8294400。'
 const RATIOS = [
   { label: '1:1', value: '1:1' },
@@ -241,7 +241,7 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
               <div className="space-y-5 animate-fade-in">
                 <section>
                   <div className="mb-2 text-xs font-medium text-gray-400 dark:text-gray-500">基准分辨率</div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-4 gap-2">
                     {TIERS.map((item) => (
                       <button key={item} className={buttonClass(tier === item)} onClick={() => setTier(item)}>
                         {item}
