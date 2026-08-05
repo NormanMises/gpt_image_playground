@@ -297,7 +297,6 @@ export default function SizePickerModal({ currentSize, onSelect, onClose, allowA
                       )
                     })}
                   </div>
-                  </div>
                 </section>
 
                 <section>
