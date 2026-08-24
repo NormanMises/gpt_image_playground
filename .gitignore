@@ -3,3 +3,5 @@ dist/
 dev-proxy.config.json
 .wrangler/
 .vercel
+.env.local
+.env.*.local
